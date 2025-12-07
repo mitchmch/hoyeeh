@@ -46,5 +46,48 @@ export const tmdb = {
       console.error("TMDB TV Search Error", error);
       return null;
     }
+  },
+
+  getDetailedInfo: async (title: string, type: 'movie' | 'series') => {
+    if (!title) return null;
+    try {
+      // 1. Search to get ID
+      const searchEndpoint = type === 'series' ? 'search/tv' : 'search/movie';
+      const searchRes = await fetch(`${TMDB_BASE_URL}/${searchEndpoint}?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(title)}`);
+      const searchData = await searchRes.json();
+      
+      if (!searchData.results || searchData.results.length === 0) return null;
+      
+      const item = searchData.results[0];
+      const id = item.id;
+
+      // 2. Fetch Details with Credits
+      const detailsEndpoint = type === 'series' ? `tv/${id}` : `movie/${id}`;
+      const detailsRes = await fetch(`${TMDB_BASE_URL}/${detailsEndpoint}?api_key=${TMDB_API_KEY}&append_to_response=credits`);
+      const details = await detailsRes.json();
+
+      const credits = details.credits || {};
+      const cast = (credits.cast || []).slice(0, 5).map((c: any) => c.name);
+      
+      let director = [];
+      if (type === 'movie') {
+         director = (credits.crew || []).filter((c: any) => c.job === 'Director').map((c: any) => c.name);
+      } else {
+         director = (details.created_by || []).map((c: any) => c.name);
+      }
+
+      return {
+        rating: details.vote_average,
+        genres: (details.genres || []).map((g: any) => g.name),
+        releaseDate: details.release_date || details.first_air_date,
+        cast: cast,
+        director: director,
+        tagline: details.tagline
+      };
+
+    } catch (error) {
+      console.error("TMDB Details Error", error);
+      return null;
+    }
   }
 };

@@ -146,8 +146,8 @@ const uploadDir = async (localDir, bucket, s3Prefix) => {
 
 // --- Routes ---
 // Health Check
-app.get('/', (req, res) => {
-    res.send('Hoyeeh Backend is Running');
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date() });
 });
 
 // DEBUG: Reset Database
@@ -848,6 +848,26 @@ app.delete('/api/admin/user/:id', authenticate, async (req, res) => {
     }
 });
 
+// Admin Stats
+app.get('/api/admin/stats', authenticate, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).send('Forbidden');
+    try {
+        const userCount = await User.countDocuments();
+        const activeSubs = await User.countDocuments({ isSubscribed: true });
+        const totalContent = await Content.countDocuments();
+        const feedbackCount = await Feedback.countDocuments();
+        
+        res.json({
+            userCount,
+            activeSubs,
+            totalContent,
+            feedbackCount
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // 5. Streaming & Proxying
 app.get('/api/stream/manifest/:id', authenticate, async (req, res) => {
   try {
@@ -950,6 +970,21 @@ app.post('/api/webhook/flutterwave', async (req, res) => {
   }
   res.sendStatus(200);
 });
+
+// 7. Serve Static Files (Production/Deployment Fix)
+// This serves the Vite build output if API routes are not hit.
+const distPath = path.join(__dirname, '../dist');
+if (fs.existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(distPath, 'index.html'));
+    });
+} else {
+    // If running in development without a build or wrong path
+    app.get('*', (req, res) => {
+        res.status(404).send('API endpoint not found and static files not present.');
+    });
+}
 
 const PORT = process.env.PORT || 5000;
 // Listen on 0.0.0.0 to allow external access (essential for Docker/Remote environments)

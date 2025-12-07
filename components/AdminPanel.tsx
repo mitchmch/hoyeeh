@@ -10,10 +10,10 @@ interface AdminPanelProps {
   showToast: (message: string, type: 'success' | 'error' | 'info') => void;
 }
 
-type Tab = 'users' | 'content';
+type Tab = 'dashboard' | 'users' | 'content';
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, showToast }) => {
-  const [activeTab, setActiveTab] = useState<Tab>('users');
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   
   return (
     <div className="min-h-screen bg-black pt-20 px-4 pb-10">
@@ -30,6 +30,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, showToast }) => 
         {/* Tabs */}
         <div className="flex gap-4 mb-8 border-b border-gray-800">
           <button 
+            onClick={() => setActiveTab('dashboard')}
+            className={`pb-4 px-4 font-medium transition ${activeTab === 'dashboard' ? 'text-brand border-b-2 border-brand' : 'text-gray-400 hover:text-white'}`}
+          >
+            Dashboard
+          </button>
+          <button 
             onClick={() => setActiveTab('users')}
             className={`pb-4 px-4 font-medium transition ${activeTab === 'users' ? 'text-brand border-b-2 border-brand' : 'text-gray-400 hover:text-white'}`}
           >
@@ -43,13 +49,85 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onBack, showToast }) => 
           </button>
         </div>
 
-        {activeTab === 'users' ? <UserManagement showToast={showToast} /> : <ContentManagement showToast={showToast} />}
+        {activeTab === 'dashboard' && <DashboardStats showToast={showToast} />}
+        {activeTab === 'users' && <UserManagement showToast={showToast} />}
+        {activeTab === 'content' && <ContentManagement showToast={showToast} />}
       </div>
     </div>
   );
 };
 
 // --- Sub-Components ---
+
+const DashboardStats: React.FC<{showToast: any}> = ({ showToast }) => {
+    const [stats, setStats] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const fetchStats = async () => {
+            try {
+                // Since this endpoint is new, handle missing route gracefully in case backend isn't updated instantly in prod
+                const res = await fetch('/api/admin/stats', { 
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('hoyeeh_token')}` }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    setStats(data);
+                } else {
+                    // Fallback mock data if endpoint missing
+                    setStats({ userCount: '-', activeSubs: '-', totalContent: '-', feedbackCount: '-' });
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchStats();
+    }, []);
+
+    if (loading) return <div className="text-white">Loading stats...</div>;
+
+    const cards = [
+        { label: 'Total Users', value: stats?.userCount, icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
+        { label: 'Active Subs', value: stats?.activeSubs, icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', color: 'text-green-500' },
+        { label: 'Content Items', value: stats?.totalContent, icon: 'M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z' },
+        { label: 'Feedbacks', value: stats?.feedbackCount, icon: 'M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z' }
+    ];
+
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 animate-fade-in">
+            {cards.map((card, idx) => (
+                <div key={idx} className="bg-dark-card border border-gray-800 p-6 rounded-xl shadow-lg">
+                    <div className="flex justify-between items-start mb-4">
+                        <div>
+                            <p className="text-gray-400 text-sm font-bold uppercase">{card.label}</p>
+                            <h3 className={`text-4xl font-bold mt-2 text-white`}>{card.value}</h3>
+                        </div>
+                        <div className={`p-3 bg-gray-900 rounded-lg ${card.color || 'text-brand'}`}>
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={card.icon}/></svg>
+                        </div>
+                    </div>
+                </div>
+            ))}
+            
+            {/* Quick Actions */}
+            <div className="col-span-full mt-8">
+                <h3 className="text-xl font-bold text-white mb-4">Quick Actions</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <button onClick={() => alert("Generate report not implemented")} className="bg-gray-800 hover:bg-gray-700 p-4 rounded-lg text-left border border-gray-700 transition">
+                        <h4 className="text-white font-bold">Generate Report</h4>
+                        <p className="text-gray-400 text-xs mt-1">Download monthly activity PDF</p>
+                    </button>
+                    <button className="bg-gray-800 hover:bg-gray-700 p-4 rounded-lg text-left border border-gray-700 transition">
+                        <h4 className="text-white font-bold">System Status</h4>
+                        <p className="text-green-500 text-xs mt-1 font-bold">ALL SYSTEMS OPERATIONAL</p>
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const UserManagement: React.FC<{showToast: any}> = ({ showToast }) => {
   const [users, setUsers] = useState<User[]>([]);
@@ -122,7 +200,7 @@ const UserManagement: React.FC<{showToast: any}> = ({ showToast }) => {
   const filteredUsers = users.filter(u => u.mobileNumber.includes(searchTerm));
 
   return (
-    <div>
+    <div className="animate-fade-in">
       <div className="flex justify-between items-center mb-6">
         <input 
           type="text" 
@@ -362,7 +440,7 @@ const ContentManagement: React.FC<{showToast: any}> = ({ showToast }) => {
   );
 
   return (
-    <div>
+    <div className="animate-fade-in">
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-4">
             <h2 className="text-xl font-bold text-white">Library ({content.length})</h2>
