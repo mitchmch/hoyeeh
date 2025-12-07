@@ -140,6 +140,14 @@ export const api = {
         headers: headers()
       });
       return handleResponse(res);
+    },
+    submitFeedback: async (data: { contentId?: string, rating?: number, message?: string, category: string, deviceInfo: string }) => {
+      const res = await fetchWithTimeout(`${API_URL}/user/feedback`, {
+        method: 'POST',
+        headers: headers(),
+        body: JSON.stringify(data)
+      });
+      return handleResponse(res);
     }
   },
   content: {
@@ -184,6 +192,13 @@ export const api = {
     toggleSubscription: async (userId: string) => {
       const res = await fetchWithTimeout(`${API_URL}/admin/user/${userId}/toggle-subscription`, {
         method: 'POST',
+        headers: headers()
+      });
+      return handleResponse(res);
+    },
+    deleteUser: async (userId: string) => {
+      const res = await fetchWithTimeout(`${API_URL}/admin/user/${userId}`, {
+        method: 'DELETE',
         headers: headers()
       });
       return handleResponse(res);
@@ -234,6 +249,14 @@ export const api = {
         method: 'POST',
         headers: headers(),
         body: JSON.stringify(content)
+      });
+      return handleResponse(res);
+    },
+    updateContent: async (id: string, updates: Partial<Content>) => {
+      const res = await fetchWithTimeout(`${API_URL}/admin/content/${id}`, {
+        method: 'PUT',
+        headers: headers(),
+        body: JSON.stringify(updates)
       });
       return handleResponse(res);
     },

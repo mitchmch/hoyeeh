@@ -25,6 +25,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
   const [showControls, setShowControls] = useState(true);
   const [seekFeedback, setSeekFeedback] = useState<'backward' | 'forward' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isBuffering, setIsBuffering] = useState(true); // Start true until loaded
+  const [isPaused, setIsPaused] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   
   // Quality State (Mock/Basic implementation since standard HLS plugin access varies)
   const [showQualityMenu, setShowQualityMenu] = useState(false);
@@ -55,6 +58,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
             case 'f':
                 if (player.isFullscreen()) player.exitFullscreen();
                 else player.requestFullscreen();
+                break;
+            case 'm':
+                player.muted(!player.muted());
                 break;
         }
     };
@@ -111,7 +117,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
         videoElement.focus();
       });
 
+      // --- Buffer State Management ---
+      player.on('waiting', () => setIsBuffering(true));
+      player.on('canplay', () => setIsBuffering(false));
+      player.on('playing', () => { setIsBuffering(false); setIsPaused(false); });
+      player.on('pause', () => { setIsBuffering(false); setIsPaused(true); }); 
+      player.on('loadstart', () => setIsBuffering(true));
+      player.on('loadeddata', () => setIsBuffering(false));
+
       player.on('error', () => {
+          setIsBuffering(false); // Stop spinning on error
           const errorObj = player.error();
           let msg = 'An unexpected error occurred.';
           
@@ -141,7 +156,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
       // Hook into Video.js user activity for the Top Bar
       player.on('useractive', () => setShowControls(true));
       player.on('userinactive', () => {
-          if (!showQualityMenu) setShowControls(false); // Keep controls if menu open
+          if (!showQualityMenu && !isPaused) setShowControls(false); // Keep controls if menu open or paused
       });
 
       // --- Sync Progress to Backend ---
@@ -177,6 +192,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
       
       player.error(null); // Clear previous errors
       setError(null);
+      setIsBuffering(true);
       player.autoplay(true);
       player.src({
         src: src,
@@ -229,6 +245,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
       if(playerRef.current) {
           const currentTime = playerRef.current.currentTime();
           setError(null);
+          setIsBuffering(true);
           playerRef.current.src(playerRef.current.currentSrc());
           playerRef.current.load();
           // Attempt to restore position if possible (might not work for live streams or specific errors)
@@ -238,7 +255,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
           playerRef.current.play().catch(e => {
              console.error("Retry play failed", e);
              setError("Retry failed. Please go back and try again.");
+             setIsBuffering(false);
           });
+      }
+  };
+
+  const togglePiP = async () => {
+      if (!playerRef.current) return;
+      try {
+          if (document.pictureInPictureElement) {
+              await document.exitPictureInPicture();
+          } else {
+              const videoEl = videoRef.current?.querySelector('video');
+              if (videoEl) await videoEl.requestPictureInPicture();
+          }
+      } catch (err) {
+          console.error("PiP failed", err);
       }
   };
 
@@ -252,10 +284,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black flex items-center justify-center font-sans">
+    <div className="fixed inset-0 z-50 bg-black flex items-center justify-center font-sans group">
       
       {/* Top Bar */}
-      <div className={`absolute top-0 left-0 right-0 p-4 z-[60] bg-gradient-to-b from-black/90 to-transparent flex items-center gap-4 transition-all duration-300 ${showControls ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'}`}>
+      <div className={`absolute top-0 left-0 right-0 p-4 z-[60] bg-gradient-to-b from-black/90 to-transparent flex items-center gap-4 transition-all duration-300 ${showControls || isPaused ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'}`}>
         <button 
             onClick={onBack}
             className="text-white hover:text-brand transition p-2 rounded-full hover:bg-white/10"
@@ -267,6 +299,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
         {title && <h2 className="text-white text-lg font-bold drop-shadow-md truncate select-none">{title}</h2>}
         
         <div className="ml-auto flex items-center gap-4">
+            
+            {/* PiP Button */}
+            {!isOffline && document.pictureInPictureEnabled && (
+                <button onClick={togglePiP} className="text-white hover:text-brand p-2" title="Picture in Picture">
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+                </button>
+            )}
+
+            {/* Help Button */}
+            <button onClick={() => setShowShortcuts(!showShortcuts)} className="text-white hover:text-brand p-2" title="Shortcuts">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </button>
+
             {/* Quality Selector */}
             {!isOffline && (
                 <div className="relative">
@@ -301,6 +346,41 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
             )}
         </div>
       </div>
+
+      {/* Shortcuts Overlay */}
+      {showShortcuts && (
+          <div className="absolute z-[65] inset-0 bg-black/80 flex items-center justify-center p-4" onClick={() => setShowShortcuts(false)}>
+              <div className="bg-gray-900 border border-gray-700 p-6 rounded-xl max-w-sm w-full animate-scale-up" onClick={e => e.stopPropagation()}>
+                  <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-white font-bold">Keyboard Shortcuts</h3>
+                      <button onClick={() => setShowShortcuts(false)} className="text-gray-400 hover:text-white">✕</button>
+                  </div>
+                  <div className="space-y-2 text-sm text-gray-300">
+                      <div className="flex justify-between border-b border-gray-800 pb-2"><span>Play/Pause</span> <span className="font-mono bg-gray-800 px-2 rounded text-white">Space / K</span></div>
+                      <div className="flex justify-between border-b border-gray-800 pb-2"><span>Fullscreen</span> <span className="font-mono bg-gray-800 px-2 rounded text-white">F</span></div>
+                      <div className="flex justify-between border-b border-gray-800 pb-2"><span>Mute</span> <span className="font-mono bg-gray-800 px-2 rounded text-white">M</span></div>
+                      <div className="flex justify-between border-b border-gray-800 pb-2"><span>Seek -10s</span> <span className="font-mono bg-gray-800 px-2 rounded text-white">←</span></div>
+                      <div className="flex justify-between"><span>Seek +10s</span> <span className="font-mono bg-gray-800 px-2 rounded text-white">→</span></div>
+                  </div>
+              </div>
+          </div>
+      )}
+      
+      {/* Loading/Buffering Spinner Overlay */}
+      <div className={`absolute inset-0 z-[45] flex items-center justify-center pointer-events-none transition-opacity duration-300 ${isBuffering && !error ? 'opacity-100' : 'opacity-0'}`}>
+          <div className="relative p-6 bg-black/40 rounded-full backdrop-blur-sm">
+             <div className="w-12 h-12 border-4 border-brand/30 border-t-brand rounded-full animate-spin"></div>
+          </div>
+      </div>
+
+      {/* Paused Indicator */}
+      {isPaused && !isBuffering && !showShortcuts && (
+          <div className="absolute inset-0 z-[45] flex items-center justify-center pointer-events-none">
+             <div className="bg-black/50 p-6 rounded-full backdrop-blur-sm">
+                 <svg className="w-12 h-12 text-white fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+             </div>
+          </div>
+      )}
 
       {/* Seek Zones */}
       <div 
@@ -378,14 +458,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ src, title, contentId,
         .video-js .vjs-slider {
           background-color: rgba(255,255,255,0.3);
         }
-        /* Loading Spinner */
+        /* Hide Default Spinner */
         .video-js .vjs-loading-spinner {
-          border: 4px solid rgba(234, 88, 12, 0.3);
-          border-top-color: #ea580c;
-          border-radius: 50%;
-          width: 50px;
-          height: 50px;
-          animation: vjs-spinner-spin 1s linear infinite;
+          display: none !important;
         }
         @keyframes ping-short {
             0% { transform: scale(0.8); opacity: 0; }

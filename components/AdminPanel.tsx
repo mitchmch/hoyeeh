@@ -88,6 +88,17 @@ const UserManagement: React.FC<{showToast: any}> = ({ showToast }) => {
     }
   };
 
+  const handleDeleteUser = async (userId: string) => {
+      if(!window.confirm("Are you sure you want to permanently DELETE this user?")) return;
+      try {
+          await api.admin.deleteUser(userId);
+          setUsers(users.filter(u => u.id !== userId));
+          showToast("User deleted successfully", 'success');
+      } catch (err) {
+          showToast("Failed to delete user", 'error');
+      }
+  };
+
   const handleAction = async (userId: string) => {
     if (editMode === 'pin') {
         if (inputValue.length !== 4) return showToast("PIN must be 4 digits", 'error');
@@ -165,6 +176,7 @@ const UserManagement: React.FC<{showToast: any}> = ({ showToast }) => {
                         <button onClick={() => { setEditingUser(user.id); setEditMode('pin'); setInputValue(''); }} className="text-brand hover:underline">Reset PIN</button>
                         <button onClick={() => { setEditingUser(user.id); setEditMode('secret'); setInputValue(''); }} className="text-brand hover:underline">Reset Secret</button>
                         <button onClick={() => handleToggleSub(user.id)} className="text-white hover:underline">Toggle Sub</button>
+                        <button onClick={() => handleDeleteUser(user.id)} className="text-red-500 hover:text-red-400 font-bold ml-2">DELETE</button>
                       </div>
                     )}
                   </td>
@@ -192,7 +204,7 @@ const ContentManagement: React.FC<{showToast: any}> = ({ showToast }) => {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   
   // Form State
-  const [formData, setFormData] = useState<Partial<Content>>({
+  const initialFormState: Partial<Content> = {
     title: '',
     description: '',
     genre: 'Drama',
@@ -201,7 +213,9 @@ const ContentManagement: React.FC<{showToast: any}> = ({ showToast }) => {
     thumbnailUrl: 'https://via.placeholder.com/600x900?text=No+Cover',
     isPremium: true,
     duration: 3600
-  });
+  };
+  const [formData, setFormData] = useState<Partial<Content>>(initialFormState);
+  const [editId, setEditId] = useState<string | null>(null);
 
   useEffect(() => {
     loadContent();
@@ -219,22 +233,44 @@ const ContentManagement: React.FC<{showToast: any}> = ({ showToast }) => {
     }
   };
 
+  const handleEditClick = (item: any) => {
+      setFormData({
+          title: item.title,
+          description: item.description,
+          genre: item.genre,
+          contentType: item.contentType,
+          videoUrl: item.videoUrl,
+          thumbnailUrl: item.thumbnailUrl,
+          isPremium: item.isPremium,
+          duration: item.duration || 3600
+      });
+      setEditId(item.id);
+      setShowForm(true);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const handleTmdbSearch = async () => {
     if (!formData.title) return showToast("Enter a title to search", 'info');
-    showToast("Searching TMDB...", 'info');
+    showToast(`Searching TMDB for ${formData.contentType === 'movie' ? 'Movie' : 'TV Show'}...`, 'info');
     
-    const movie = await tmdb.searchMovie(formData.title);
-    if (movie) {
+    let result;
+    if (formData.contentType === 'series') {
+        result = await tmdb.searchTv(formData.title);
+    } else {
+        result = await tmdb.searchMovie(formData.title);
+    }
+    
+    if (result) {
       setFormData(prev => ({
         ...prev,
-        title: movie.title,
-        description: movie.description,
-        thumbnailUrl: movie.thumbnailUrl || prev.thumbnailUrl,
+        title: result.title,
+        description: result.description,
+        thumbnailUrl: result.thumbnailUrl || prev.thumbnailUrl,
         // If we had a release date field in Content type we would use movie.releaseDate
       }));
       showToast("Found and auto-filled!", 'success');
     } else {
-      showToast("Movie not found on TMDB", 'error');
+      showToast("Content not found on TMDB", 'error');
     }
   };
 
@@ -247,7 +283,7 @@ const ContentManagement: React.FC<{showToast: any}> = ({ showToast }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.title || !formData.description) return showToast("Please fill title and description", 'error');
-    if (!videoFile && !formData.videoUrl) return showToast("Please upload a video or provide a URL", 'error');
+    if (!editId && !videoFile && !formData.videoUrl) return showToast("Please upload a video or provide a URL", 'error');
     
     setUploading(true);
     setUploadProgress(0);
@@ -267,28 +303,29 @@ const ContentManagement: React.FC<{showToast: any}> = ({ showToast }) => {
         });
       }
 
-      // 3. Save Metadata to DB
-      await api.admin.addContent({
-        ...formData,
-        videoUrl: videoKey!
-      } as Content);
+      if (editId) {
+          // Edit existing
+          await api.admin.updateContent(editId, {
+              ...formData,
+              videoUrl: videoKey!
+          });
+          showToast("Content Updated Successfully!", 'success');
+      } else {
+          // Create new
+          await api.admin.addContent({
+            ...formData,
+            videoUrl: videoKey!
+          } as Content);
+          showToast("Content Added Successfully!", 'success');
+      }
 
-      showToast("Content Added Successfully!", 'success');
       setShowForm(false);
-      setFormData({
-        title: '',
-        description: '',
-        genre: 'Drama',
-        contentType: 'movie',
-        videoUrl: '',
-        thumbnailUrl: 'https://via.placeholder.com/600x900?text=No+Cover',
-        isPremium: true,
-        duration: 3600
-      });
+      setFormData(initialFormState);
+      setEditId(null);
       setVideoFile(null);
       loadContent();
     } catch (err: any) {
-      showToast("Error adding content: " + err.message, 'error');
+      showToast("Error saving content: " + err.message, 'error');
     } finally {
       setUploading(false);
       setUploadProgress(0);
@@ -337,14 +374,14 @@ const ContentManagement: React.FC<{showToast: any}> = ({ showToast }) => {
                 className="bg-dark-card border border-gray-700 rounded-lg px-3 py-1 text-sm text-white focus:border-brand focus:outline-none w-64"
             />
         </div>
-        <Button onClick={() => setShowForm(!showForm)}>
+        <Button onClick={() => { setShowForm(!showForm); setEditId(null); setFormData(initialFormState); }}>
           {showForm ? 'Cancel' : '+ Add Content'}
         </Button>
       </div>
 
       {showForm && (
         <div className="bg-gray-900 border border-gray-800 p-6 rounded-xl mb-8 animate-fade-in">
-          <h3 className="text-lg font-bold text-white mb-4">Add New Content</h3>
+          <h3 className="text-lg font-bold text-white mb-4">{editId ? 'Edit Content' : 'Add New Content'}</h3>
           <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
               <div>
@@ -431,7 +468,7 @@ const ContentManagement: React.FC<{showToast: any}> = ({ showToast }) => {
               </div>
               <div className="pt-2">
                 <Button type="submit" fullWidth disabled={uploading}>
-                  {uploading ? 'Uploading...' : 'Save to Library'}
+                  {uploading ? 'Uploading...' : editId ? 'Update Content' : 'Save to Library'}
                 </Button>
               </div>
             </div>
@@ -447,15 +484,16 @@ const ContentManagement: React.FC<{showToast: any}> = ({ showToast }) => {
               <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded uppercase font-bold border border-white/20">
                 {item.contentType}
               </div>
-              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-2">
+              <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-2 p-4">
                 {transcodingId === item.id ? (
-                   <div className="bg-black/80 text-white px-3 py-1 rounded text-xs animate-pulse">Transcoding...</div>
+                   <div className="text-white text-xs animate-pulse text-center">Transcoding...</div>
                 ) : (
                   <>
+                     <button onClick={() => handleEditClick(item)} className="bg-white text-black px-3 py-1.5 rounded text-xs font-bold hover:bg-gray-200 w-full">Edit</button>
                      {!item.isTranscoded && (
-                         <button onClick={() => handleTranscode(item.id)} className="bg-blue-600 text-white px-3 py-1 rounded text-xs hover:bg-blue-700 w-24">Convert HLS</button>
+                         <button onClick={() => handleTranscode(item.id)} className="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-700 w-full">Transcode</button>
                      )}
-                     <button onClick={() => handleDelete(item.id)} className="bg-red-600 text-white px-3 py-1 rounded text-xs hover:bg-red-700 w-24">Delete</button>
+                     <button onClick={() => handleDelete(item.id)} className="bg-red-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-red-700 w-full">Delete</button>
                   </>
                 )}
               </div>

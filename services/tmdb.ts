@@ -23,5 +23,28 @@ export const tmdb = {
       console.error("TMDB Search Error", error);
       return null;
     }
+  },
+
+  searchTv: async (query: string) => {
+    if (!query) return null;
+    try {
+      const res = await fetch(`${TMDB_BASE_URL}/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      if (data.results && data.results.length > 0) {
+        const show = data.results[0];
+        return {
+          title: show.name, // TV shows use 'name' instead of 'title'
+          description: show.overview,
+          thumbnailUrl: show.poster_path ? `${TMDB_IMAGE_BASE}${show.poster_path}` : null,
+          backdropUrl: show.backdrop_path ? `${TMDB_IMAGE_BASE}${show.backdrop_path}` : null,
+          rating: show.vote_average,
+          releaseDate: show.first_air_date
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("TMDB TV Search Error", error);
+      return null;
+    }
   }
 };

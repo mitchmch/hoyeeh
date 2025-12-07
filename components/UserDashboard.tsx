@@ -6,6 +6,7 @@ import { offlineStorage } from '../services/offlineStorage';
 import { Button } from './Button';
 import { useDownload, DownloadItem } from '../contexts/DownloadContext';
 import { ContentCard } from './ContentCard';
+import { Logo } from './Logo';
 
 interface UserDashboardProps {
   user: User;
@@ -22,11 +23,12 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ user, onBack, onLo
   const [myList, setMyList] = useState<Content[]>([]);
   const [storageUsage, setStorageUsage] = useState<{usage: number, quota: number} | null>(null);
   
-  const { activeDownloads, cancelDownload, removeDownload } = useDownload();
+  const { activeDownloads, cancelDownload, removeDownload, pauseDownload, resumeDownload } = useDownload();
 
   // Settings State
   const [newPin, setNewPin] = useState('');
   const [newSecret, setNewSecret] = useState('');
+  const [downloadQuality, setDownloadQuality] = useState(localStorage.getItem('hoyeeh_dl_quality') || 'Standard');
 
   useEffect(() => {
     loadHistory();
@@ -117,6 +119,11 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ user, onBack, onLo
               }
           });
       }
+  };
+
+  const changeDownloadQuality = (quality: string) => {
+      setDownloadQuality(quality);
+      localStorage.setItem('hoyeeh_dl_quality', quality);
   };
 
   const activeDownloadList = Object.values(activeDownloads) as DownloadItem[];
@@ -251,7 +258,10 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ user, onBack, onLo
                         {/* Active Downloads Queue */}
                         {activeDownloadList.length > 0 && (
                             <div className="mb-8">
-                                <h3 className="text-lg font-bold text-white mb-4">Downloading...</h3>
+                                <div className="flex justify-between items-center mb-4">
+                                    <h3 className="text-lg font-bold text-white">Downloading...</h3>
+                                    {/* Future feature: Pause/Resume All */}
+                                </div>
                                 <div className="space-y-3">
                                     {activeDownloadList.map((item) => (
                                         <div key={item.content.id} className="bg-gray-800 p-4 rounded-lg border border-gray-700">
@@ -259,19 +269,47 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ user, onBack, onLo
                                                  <img src={item.content.thumbnailUrl} className="w-12 h-16 object-cover rounded bg-black" />
                                                  <div className="flex-1">
                                                      <h4 className="text-white font-bold text-sm">{item.content.title}</h4>
-                                                     <p className="text-xs text-gray-400">{item.status === 'error' ? 'Failed' : `${item.progress}%`}</p>
+                                                     <div className="flex items-center gap-2">
+                                                         {item.status === 'paused' && <span className="text-xs text-yellow-500 font-bold uppercase">Paused</span>}
+                                                         {item.status === 'error' && <span className="text-xs text-red-500 font-bold uppercase">Failed</span>}
+                                                         {item.status === 'downloading' && <span className="text-xs text-brand font-bold uppercase">Downloading</span>}
+                                                         {item.status === 'pending' && <span className="text-xs text-gray-400 uppercase">Pending</span>}
+                                                         <span className="text-xs text-gray-500">• {item.progress}%</span>
+                                                     </div>
                                                  </div>
-                                                 <button 
-                                                    onClick={() => cancelDownload(item.content.id)}
-                                                    className="p-2 text-gray-400 hover:text-white"
-                                                    title="Cancel Download"
-                                                 >
-                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-                                                 </button>
+                                                 <div className="flex items-center gap-2">
+                                                     {item.status === 'downloading' ? (
+                                                         <button 
+                                                            onClick={() => pauseDownload(item.content.id)}
+                                                            className="p-2 text-white bg-gray-700 hover:bg-gray-600 rounded-full"
+                                                            title="Pause"
+                                                         >
+                                                             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
+                                                         </button>
+                                                     ) : (
+                                                         <button 
+                                                            onClick={() => resumeDownload(item.content.id)}
+                                                            className="p-2 text-white bg-brand hover:bg-brand-dark rounded-full"
+                                                            title="Resume"
+                                                         >
+                                                             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                                         </button>
+                                                     )}
+                                                     <button 
+                                                        onClick={() => cancelDownload(item.content.id)}
+                                                        className="p-2 text-gray-400 hover:text-white"
+                                                        title="Cancel"
+                                                     >
+                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+                                                     </button>
+                                                 </div>
                                             </div>
                                             {item.status !== 'error' && (
                                                 <div className="w-full h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                                                    <div className="h-full bg-brand transition-all duration-300" style={{ width: `${item.progress}%` }}></div>
+                                                    <div 
+                                                        className={`h-full transition-all duration-300 ${item.status === 'paused' ? 'bg-yellow-500' : 'bg-brand'}`} 
+                                                        style={{ width: `${item.progress}%` }}
+                                                    ></div>
                                                 </div>
                                             )}
                                             {item.status === 'error' && <p className="text-xs text-red-500 mt-1">{item.error || 'Unknown error'}</p>}
@@ -290,7 +328,7 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ user, onBack, onLo
 
                         {downloads.length === 0 ? (
                             <div className="text-center py-10">
-                                <p className="text-gray-500 mb-2">No downloads yet.</p>
+                                <p className="text-gray-500 mb-2">No completed downloads.</p>
                                 <p className="text-xs text-gray-600">Download movies on Wi-Fi to watch when you're offline.</p>
                             </div>
                         ) : (
@@ -331,7 +369,40 @@ export const UserDashboard: React.FC<UserDashboardProps> = ({ user, onBack, onLo
                             </div>
                         )}
 
-                        <h3 className="text-lg font-bold text-white mb-6">Security Settings</h3>
+                        <div className="mb-8">
+                            <h3 className="text-lg font-bold text-white mb-4">App Settings</h3>
+                            
+                            {/* Download Quality */}
+                            <div className="mb-6">
+                                <label className="block text-gray-400 text-xs uppercase font-bold mb-2">Download Quality</label>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div 
+                                        onClick={() => changeDownloadQuality('Standard')}
+                                        className={`cursor-pointer p-3 rounded border ${downloadQuality === 'Standard' ? 'border-brand bg-brand/10' : 'border-gray-700 bg-gray-900'} hover:border-brand/50`}
+                                    >
+                                        <div className="font-bold text-sm text-white">Standard</div>
+                                        <div className="text-xs text-gray-500">Faster download, less storage</div>
+                                    </div>
+                                    <div 
+                                        onClick={() => changeDownloadQuality('High')}
+                                        className={`cursor-pointer p-3 rounded border ${downloadQuality === 'High' ? 'border-brand bg-brand/10' : 'border-gray-700 bg-gray-900'} hover:border-brand/50`}
+                                    >
+                                        <div className="font-bold text-sm text-white">High</div>
+                                        <div className="text-xs text-gray-500">Better video quality, uses more storage</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Device Info */}
+                            <div className="mb-6">
+                                <label className="block text-gray-400 text-xs uppercase font-bold mb-2">Device Info</label>
+                                <div className="bg-gray-900 p-3 rounded border border-gray-700 text-sm text-gray-300">
+                                    <p>Current Device: <span className="text-white font-mono">{navigator.userAgent.match(/\(([^)]+)\)/)?.[1] || 'Unknown Device'}</span></p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h3 className="text-lg font-bold text-white mb-6">Security</h3>
                         <form onSubmit={handleUpdateSettings} className="space-y-6">
                             <div>
                                 <label className="block text-gray-400 text-xs uppercase font-bold mb-2">Change PIN</label>

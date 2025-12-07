@@ -58,8 +58,19 @@ const contentSchema = new mongoose.Schema({
   isTranscoded: { type: Boolean, default: false }
 });
 
+const feedbackSchema = new mongoose.Schema({
+  user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  contentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Content' }, // Optional (if rating specific content)
+  rating: Number, // 1-5
+  message: String,
+  category: { type: String, enum: ['bug', 'feature', 'content_rating', 'general'], default: 'general' },
+  deviceInfo: String,
+  createdAt: { type: Date, default: Date.now }
+});
+
 const User = mongoose.model('User', userSchema);
 const Content = mongoose.model('Content', contentSchema);
+const Feedback = mongoose.model('Feedback', feedbackSchema);
 
 // --- Config ---
 const s3 = new AWS.S3({
@@ -503,6 +514,27 @@ app.post('/api/user/cancel-subscription', authenticate, async (req, res) => {
   }
 });
 
+// Feedback Submission
+app.post('/api/user/feedback', authenticate, async (req, res) => {
+  try {
+    const { contentId, rating, message, category, deviceInfo } = req.body;
+    
+    const feedback = new Feedback({
+      user: req.user.id,
+      contentId: contentId || undefined,
+      rating,
+      message,
+      category,
+      deviceInfo
+    });
+
+    await feedback.save();
+    res.json({ success: true, message: 'Feedback received' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Clear Watch History
 app.delete('/api/user/history', authenticate, async (req, res) => {
   try {
@@ -724,6 +756,18 @@ app.post('/api/admin/content', authenticate, async (req, res) => {
   }
 });
 
+// Update Content (Edit)
+app.put('/api/admin/content/:id', authenticate, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).send('Forbidden');
+  try {
+    const updates = req.body;
+    const content = await Content.findByIdAndUpdate(req.params.id, updates, { new: true });
+    res.json(content ? { ...content.toObject(), id: content._id } : null);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.delete('/api/admin/content/:id', authenticate, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).send('Forbidden');
   try {
@@ -791,6 +835,17 @@ app.post('/api/admin/user/:id/toggle-subscription', authenticate, async (req, re
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// Delete User
+app.delete('/api/admin/user/:id', authenticate, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).send('Forbidden');
+    try {
+      await User.findByIdAndDelete(req.params.id);
+      res.json({ success: true, message: 'User deleted successfully' });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
 });
 
 // 5. Streaming & Proxying

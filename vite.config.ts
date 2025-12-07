@@ -30,12 +30,12 @@ export default defineConfig({
         start_url: '/',
         icons: [
           {
-            src: 'https://picsum.photos/192/192', // Placeholder icon
+            src: '/logo.png',
             sizes: '192x192',
             type: 'image/png'
           },
           {
-            src: 'https://picsum.photos/512/512', // Placeholder icon
+            src: '/logo.png',
             sizes: '512x512',
             type: 'image/png'
           }

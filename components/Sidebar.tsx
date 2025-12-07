@@ -1,5 +1,6 @@
 
 import React from 'react';
+import { Logo } from './Logo';
 
 interface SidebarProps {
   currentView: string;
@@ -26,8 +27,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) =
   return (
     <aside className="hidden md:flex flex-col w-24 bg-black/95 border-r border-white/5 fixed left-0 top-0 bottom-0 z-50 py-8 items-center justify-between">
       {/* Logo Icon */}
-      <div className="mb-8">
-        <h1 className="text-brand font-black text-2xl tracking-tighter cursor-pointer" onClick={() => onChangeView('home')}>H</h1>
+      <div className="mb-8" onClick={() => onChangeView('home')} >
+        <Logo className="w-12 h-12 cursor-pointer hover:scale-105 transition-transform" variant="icon" />
       </div>
 
       {/* Nav Items */}

@@ -16,12 +16,17 @@ import { ContentCard } from './components/ContentCard';
 import { Sidebar } from './components/Sidebar';
 import { AFRICAN_COUNTRIES } from './constants';
 import { DownloadProvider } from './contexts/DownloadContext';
+import { FeedbackModal } from './components/FeedbackModal';
+import { Logo } from './components/Logo';
 
 type ViewState = 'home' | 'movies' | 'shows' | 'player' | 'admin' | 'mylist' | 'profile' | 'search';
 type ToastState = { message: string, type: 'success' | 'error' | 'info' } | null;
 
 const HoyeehApp = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [isProfileSelected, setIsProfileSelected] = useState(false);
+  const [editMode, setEditMode] = useState(false); // Added missing state
+  
   const [content, setContent] = useState<Content[]>([]);
   const [myListContent, setMyListContent] = useState<Content[]>([]);
   
@@ -42,6 +47,10 @@ const HoyeehApp = () => {
   const [toast, setToast] = useState<ToastState>(null);
   
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Feedback State
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [feedbackTarget, setFeedbackTarget] = useState<Content | null>(null);
   
   // Auth State
   const [mobileNumber, setMobileNumber] = useState('');
@@ -61,6 +70,8 @@ const HoyeehApp = () => {
     const storedUser = localStorage.getItem('hoyeeh_user');
     if (token && storedUser) {
       setUser(JSON.parse(storedUser));
+      // If user is already stored, we show profile selector first
+      setIsProfileSelected(false);
     }
     
     const handleSessionExpired = (e: Event) => {
@@ -98,7 +109,7 @@ const HoyeehApp = () => {
   }, []);
 
   useEffect(() => {
-    if (user) {
+    if (user && isProfileSelected) {
       if (['home', 'movies', 'shows'].includes(currentView)) {
         loadContent();
         loadRecommendations(); 
@@ -112,7 +123,7 @@ const HoyeehApp = () => {
           return () => clearTimeout(delayDebounceFn);
       }
     }
-  }, [user, currentView, searchQuery, isOnline]);
+  }, [user, isProfileSelected, currentView, searchQuery, isOnline]);
 
   const enrichContent = async (items: Content[]) => {
     if (!isOnline) return items;
@@ -237,7 +248,7 @@ const HoyeehApp = () => {
       setUser(userData);
       localStorage.setItem('hoyeeh_token', userData.token!);
       localStorage.setItem('hoyeeh_user', JSON.stringify(userData));
-      showToast(`Welcome back!`, 'success');
+      setIsProfileSelected(false); // Go to profile selection
     } catch (err: any) {
       showToast(err.message || 'Authentication failed', 'error');
     }
@@ -249,6 +260,7 @@ const HoyeehApp = () => {
         setUser(userData);
         localStorage.setItem('hoyeeh_token', userData.token!);
         localStorage.setItem('hoyeeh_user', JSON.stringify(userData));
+        setIsProfileSelected(false);
         showToast(`Welcome to Hoyeeh Demo!`, 'success');
     } catch (err: any) {
         showToast("Demo Login Failed: " + err.message, 'error');
@@ -275,6 +287,7 @@ const HoyeehApp = () => {
     setSelectedContent(null);
     setMobileNumber('');
     setPin('');
+    setIsProfileSelected(false);
   };
 
   const handleContentClick = (item: Content) => {
@@ -323,6 +336,21 @@ const HoyeehApp = () => {
     showToast('Welcome to Hoyeeh Premium!', 'success');
   };
 
+  const handleFeedbackSubmit = async (data: any) => {
+    try {
+       await api.user.submitFeedback(data);
+       showToast("Thank you for your feedback!", 'success');
+       setFeedbackTarget(null);
+    } catch (err) {
+       showToast("Failed to submit feedback", 'error');
+    }
+  };
+
+  const openFeedback = (item?: Content) => {
+      setFeedbackTarget(item || null);
+      setIsFeedbackOpen(true);
+  };
+
   const getDisplayContent = () => {
       if (currentView === 'movies') return content.filter(c => c.contentType === 'movie');
       if (currentView === 'shows') return content.filter(c => c.contentType === 'series');
@@ -348,119 +376,180 @@ const HoyeehApp = () => {
     />;
   }
 
-  // Auth Screen (unchanged)
+  // 1. LOGIN SCREEN
   if (!user) {
     return (
-      <div className="min-h-screen bg-black flex flex-col items-center justify-center p-4 bg-[url('https://images.unsplash.com/photo-1574375927938-d5a98e8ffe85?q=80&w=2069&auto=format&fit=crop')] bg-cover bg-center">
-        <div className="absolute inset-0 bg-black/70"></div>
-        {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-        
-        <div className="relative z-10 w-full max-w-sm bg-dark-card/90 backdrop-blur-md p-8 rounded-xl border border-gray-800 shadow-2xl">
-          <div className="text-center mb-8">
-            <h1 className="text-4xl font-extrabold text-brand tracking-tighter">Hoyeeh</h1>
-            <p className="text-gray-400 text-sm mt-2">Streaming Africa to the World</p>
-          </div>
+      <div className="min-h-screen bg-black flex flex-col p-6 relative overflow-hidden">
+        {/* Background Image with Overlay */}
+        <div className="absolute inset-0 z-0">
+             <img src="https://assets.nflxext.com/ffe/siteui/vlv3/9d3533b2-0e2b-40b2-95e0-ecd7979cc93b/d3a7396f-6d74-47b2-15b7-b77525be4301/IN-en-20240311-popsignuptwoweeks-perspective_alpha_website_small.jpg" 
+                  className="w-full h-full object-cover opacity-50" />
+             <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black"></div>
+        </div>
 
-          {!isRegistering && !isResetting && (
+        {/* Top Bar */}
+        <div className="relative z-10 flex justify-between items-center mb-12 pt-4">
+             <Logo className="w-24 h-12" />
+             <button className="text-white text-sm font-medium" onClick={() => { setIsRegistering(!isRegistering); setIsResetting(false); }}>
+                 {isRegistering ? 'Sign In' : 'Help'}
+             </button>
+        </div>
+
+        {/* Login Form Container */}
+        <div className="relative z-10 flex-1 flex flex-col justify-center max-w-md mx-auto w-full animate-fade-in">
+           {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+           
+           <h2 className="text-3xl font-bold text-white mb-8">{isResetting ? 'Reset PIN' : isRegistering ? 'Create Account' : 'Sign In'}</h2>
+           
+           {!isRegistering && !isResetting && (
               <button 
                 onClick={handleDemoLogin}
-                className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded mb-6 transition-colors shadow-lg flex items-center justify-center gap-2"
+                className="w-full bg-white text-black font-bold py-3 rounded mb-6 flex items-center justify-center gap-2 hover:bg-gray-200 transition"
               >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                   Instant Demo Access
               </button>
-          )}
+           )}
 
-          <div className="flex items-center gap-4 mb-6">
-              <div className="h-px bg-gray-700 flex-1"></div>
-              <span className="text-gray-500 text-xs uppercase">OR</span>
-              <div className="h-px bg-gray-700 flex-1"></div>
-          </div>
+           <form onSubmit={handleLogin} className="space-y-4">
+             <div className="relative group">
+               <input 
+                 type="tel" 
+                 value={mobileNumber}
+                 onChange={(e) => setMobileNumber(e.target.value)}
+                 className="w-full bg-[#333] text-white rounded px-4 pt-5 pb-2 outline-none focus:bg-[#454545] peer transition-colors"
+                 required 
+               />
+               <label className={`absolute left-4 top-3.5 text-gray-400 text-sm transition-all peer-focus:text-[10px] peer-focus:top-1 ${mobileNumber ? 'top-1 text-[10px]' : ''}`}>
+                 Email or phone number
+               </label>
+             </div>
 
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="text-gray-400 text-xs uppercase font-bold tracking-wider">Mobile Number</label>
-              <input 
-                type="tel" 
-                value={mobileNumber}
-                onChange={(e) => setMobileNumber(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 text-white p-3 rounded mt-1 focus:border-brand focus:outline-none"
-                placeholder="e.g., 237677..."
-                required 
-              />
-            </div>
-
-            {(isRegistering || isResetting) && (
-              <div>
-                <label className="text-gray-400 text-xs uppercase font-bold tracking-wider">Secret Word</label>
+             <div className="relative group">
                 <input 
-                  type="text" 
-                  value={secretWord}
-                  onChange={(e) => setSecretWord(e.target.value)}
-                  className="w-full bg-gray-900 border border-gray-700 text-white p-3 rounded mt-1 focus:border-brand focus:outline-none"
-                  placeholder="For recovery"
+                  type="password" 
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value)}
+                  className="w-full bg-[#333] text-white rounded px-4 pt-5 pb-2 outline-none focus:bg-[#454545] peer transition-colors"
+                  maxLength={4}
                   required 
                 />
-              </div>
-            )}
+                <label className={`absolute left-4 top-3.5 text-gray-400 text-sm transition-all peer-focus:text-[10px] peer-focus:top-1 ${pin ? 'top-1 text-[10px]' : ''}`}>
+                  PIN (4 digits)
+                </label>
+             </div>
 
-            <div>
-              <label className="text-gray-400 text-xs uppercase font-bold tracking-wider">{isResetting ? 'New PIN' : 'PIN'}</label>
-              <input 
-                type="password" 
-                value={pin}
-                onChange={(e) => setPin(e.target.value)}
-                className="w-full bg-gray-900 border border-gray-700 text-white p-3 rounded mt-1 focus:border-brand focus:outline-none"
-                placeholder="****"
-                maxLength={4}
-                required 
-              />
-            </div>
+             {(isRegistering || isResetting) && (
+               <div className="relative group">
+                  <input 
+                    type="text" 
+                    value={secretWord}
+                    onChange={(e) => setSecretWord(e.target.value)}
+                    className="w-full bg-[#333] text-white rounded px-4 pt-5 pb-2 outline-none focus:bg-[#454545] peer transition-colors"
+                    required 
+                  />
+                  <label className={`absolute left-4 top-3.5 text-gray-400 text-sm transition-all peer-focus:text-[10px] peer-focus:top-1 ${secretWord ? 'top-1 text-[10px]' : ''}`}>
+                    Secret Word
+                  </label>
+               </div>
+             )}
 
-            {isRegistering && (
-                <div className="pt-2">
-                    <div className="flex items-center gap-2 mb-2">
-                        <input type="checkbox" id="admin" className="accent-brand" checked={showAdminCode} onChange={e => setShowAdminCode(e.target.checked)} />
-                        <label htmlFor="admin" className="text-xs text-gray-400">Register as Partner/Admin</label>
-                    </div>
-                    {showAdminCode && (
-                        <input 
-                            type="password" 
-                            value={adminCode}
-                            onChange={(e) => setAdminCode(e.target.value)}
-                            className="w-full bg-gray-900 border border-gray-700 text-white p-3 rounded focus:border-brand focus:outline-none"
-                            placeholder="Admin Code"
-                        />
-                    )}
+             {isRegistering && (
+                <div className="flex items-center gap-2 py-2">
+                    <input type="checkbox" id="admin" className="accent-brand w-4 h-4" checked={showAdminCode} onChange={e => setShowAdminCode(e.target.checked)} />
+                    <label htmlFor="admin" className="text-sm text-gray-400">Partner Code</label>
                 </div>
-            )}
+             )}
+             
+             {showAdminCode && isRegistering && (
+                <div className="relative group">
+                    <input 
+                        type="password" 
+                        value={adminCode}
+                        onChange={(e) => setAdminCode(e.target.value)}
+                        className="w-full bg-[#333] text-white rounded px-4 p-3 outline-none focus:bg-[#454545]"
+                        placeholder="Enter Admin Code"
+                    />
+                </div>
+             )}
 
-            <Button type="submit" fullWidth>
-              {isResetting ? 'Reset PIN' : isRegistering ? 'Create Account' : 'Sign In'}
-            </Button>
-          </form>
+             <Button type="submit" fullWidth className="mt-6 py-4 font-bold text-base bg-brand hover:bg-brand-dark">
+               {isResetting ? 'Reset PIN' : isRegistering ? 'Sign Up' : 'Sign In'}
+             </Button>
 
-          <div className="mt-6 flex flex-col gap-2 text-center text-sm">
-            {!isResetting && !isRegistering && (
-              <>
-                <button onClick={() => setIsRegistering(true)} className="text-white hover:text-brand underline">New to Hoyeeh? Sign up</button>
-                <button onClick={() => setIsResetting(true)} className="text-gray-500 hover:text-gray-300">Forgot PIN?</button>
-              </>
-            )}
-            {(isRegistering || isResetting) && (
-              <button onClick={() => { setIsRegistering(false); setIsResetting(false); setAdminCode(''); setShowAdminCode(false); }} className="text-gray-400 hover:text-white">Back to Login</button>
-            )}
-          </div>
+             {!isRegistering && !isResetting && (
+                <div className="flex justify-between items-center text-sm text-gray-400 mt-2">
+                    <label className="flex items-center gap-1 cursor-pointer">
+                        <input type="checkbox" className="accent-gray-500" /> Remember me
+                    </label>
+                    <button type="button" onClick={() => setIsResetting(true)} className="hover:underline">Need help?</button>
+                </div>
+             )}
+           </form>
+
+           <div className="mt-8">
+             <div className="text-gray-500 text-base">
+                {isRegistering ? 'Already have an account?' : 'New to Hoyeeh?'}{' '}
+                <button 
+                    onClick={() => { setIsRegistering(!isRegistering); setIsResetting(false); }}
+                    className="text-white hover:underline font-medium"
+                >
+                    {isRegistering ? 'Sign in now' : 'Sign up now'}.
+                </button>
+             </div>
+           </div>
         </div>
-        
-        <button 
-            onClick={handleResetData}
-            className="fixed bottom-4 right-4 text-xs text-gray-600 hover:text-red-500 font-mono opacity-50 hover:opacity-100 transition"
-        >
-            [ Reset Demo Data ]
-        </button>
       </div>
     );
+  }
+
+  // 2. PROFILE SELECTION SCREEN
+  if (!isProfileSelected && user) {
+      return (
+          <div className="min-h-screen bg-black flex flex-col items-center justify-center animate-fade-in relative">
+              <div className="absolute top-6 right-6">
+                  <button onClick={() => setEditMode(prev => !prev)} className="text-gray-400 font-bold text-sm tracking-widest hover:text-white">
+                     {editMode ? 'DONE' : 'EDIT'}
+                  </button>
+              </div>
+
+              <div className="absolute top-6 left-0 right-0 flex justify-center pt-8">
+                  <Logo className="w-32 h-16" />
+              </div>
+
+              <h2 className="text-white text-xl md:text-3xl font-medium mb-8">Who's Watching?</h2>
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 px-8">
+                  {/* Main Profile */}
+                  <div className="flex flex-col items-center gap-3 group cursor-pointer" onClick={() => setIsProfileSelected(true)}>
+                      <div className="w-24 h-24 md:w-32 md:h-32 rounded bg-gradient-to-br from-blue-600 to-blue-900 flex items-center justify-center relative overflow-hidden ring-2 ring-transparent group-hover:ring-white transition-all">
+                          <span className="text-4xl font-bold text-white">{user.mobileNumber.slice(-2)}</span>
+                          {editMode && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></div>}
+                      </div>
+                      <span className="text-gray-400 group-hover:text-white transition font-medium">My Profile</span>
+                  </div>
+
+                  {/* Kids Profile (Dummy) */}
+                  <div className="flex flex-col items-center gap-3 group cursor-pointer" onClick={() => setIsProfileSelected(true)}>
+                      <div className="w-24 h-24 md:w-32 md:h-32 rounded bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center relative overflow-hidden ring-2 ring-transparent group-hover:ring-white transition-all">
+                          <span className="text-3xl font-bold text-white">Kids</span>
+                          {editMode && <div className="absolute inset-0 bg-black/50 flex items-center justify-center"><svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg></div>}
+                      </div>
+                      <span className="text-gray-400 group-hover:text-white transition font-medium">Kids</span>
+                  </div>
+
+                  {/* Add Profile */}
+                  <div className="flex flex-col items-center gap-3 group cursor-pointer opacity-70 hover:opacity-100">
+                      <div className="w-24 h-24 md:w-32 md:h-32 rounded border-2 border-gray-600 flex items-center justify-center group-hover:bg-white group-hover:border-white transition-all">
+                          <svg className="w-12 h-12 text-gray-400 group-hover:text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                          </svg>
+                      </div>
+                      <span className="text-gray-400 group-hover:text-white transition font-medium">Add Profile</span>
+                  </div>
+              </div>
+          </div>
+      );
   }
 
   if (currentView === 'admin') {
@@ -478,7 +567,7 @@ const HoyeehApp = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#0f0f0f] flex">
+    <div className="min-h-screen bg-[#0f0f0f] flex flex-col md:flex-row">
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       
       {showPayment && (
@@ -489,12 +578,23 @@ const HoyeehApp = () => {
         />
       )}
 
+      {isFeedbackOpen && (
+        <FeedbackModal 
+          isOpen={isFeedbackOpen}
+          onClose={() => setIsFeedbackOpen(false)}
+          onSubmit={handleFeedbackSubmit}
+          initialContentId={feedbackTarget?.id}
+          initialTitle={feedbackTarget?.title}
+        />
+      )}
+
       {selectedContent && (
         <ContentDetailsModal 
           content={selectedContent} 
           onClose={() => setSelectedContent(null)}
           onPlay={() => handlePlay(selectedContent)}
           onToggleMyList={() => toggleMyList(selectedContent)}
+          onRate={() => openFeedback(selectedContent)}
           isInMyList={user.myList?.includes(selectedContent.id) || false}
         />
       )}
@@ -523,7 +623,7 @@ const HoyeehApp = () => {
                     Admin
                   </button>
                 )}
-                <button onClick={() => setCurrentView('profile')} className="w-9 h-9 rounded bg-brand flex items-center justify-center font-bold text-white border border-transparent hover:border-white transition shadow-lg">
+                <button onClick={() => setIsProfileSelected(false)} className="w-9 h-9 rounded bg-gradient-to-br from-blue-600 to-blue-900 flex items-center justify-center font-bold text-white border border-transparent hover:border-white transition shadow-lg">
                     {user.mobileNumber.slice(-2)}
                 </button>
              </div>
@@ -548,7 +648,7 @@ const HoyeehApp = () => {
              <div className="pt-24 px-4 md:px-8 min-h-screen animate-fade-in">
                 <h2 className="text-3xl font-bold text-white mb-6">My List</h2>
                 {!isOnline && <p className="text-gray-500 mb-4">Offline mode. Sync unavailable.</p>}
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
                     {myListContent.map((item) => (
                         <ContentCard 
                             key={item.id} 
@@ -568,52 +668,81 @@ const HoyeehApp = () => {
              <>
                 {/* Hero Section */}
                 {displayContent.length > 0 && (
-                   <div className="relative h-[85vh] w-full group">
+                   <div className="relative h-[80vh] md:h-[85vh] w-full group">
                       <div className="absolute inset-0">
                          <img 
                            src={displayContent[0].thumbnailUrl} 
                            className="w-full h-full object-cover"
                            alt="Hero"
                          />
-                         {/* Gradient Overlay matching image style */}
-                         <div className="absolute inset-0 bg-gradient-to-r from-black via-black/40 to-transparent"></div>
-                         <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f0f] via-transparent to-transparent"></div>
+                         {/* Gradient Overlays */}
+                         <div className="absolute inset-0 bg-gradient-to-t from-[#0f0f0f] via-[#0f0f0f]/20 to-transparent"></div>
+                         <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-transparent md:hidden"></div>
                       </div>
                       
-                      <div className="absolute bottom-0 left-0 p-6 md:p-12 w-full md:w-2/3 flex flex-col justify-end h-full pb-20 md:pb-24">
-                          {/* Metadata Badge Row */}
-                          <div className="flex items-center gap-3 mb-4 animate-slide-up" style={{animationDelay: '0.1s'}}>
-                              <div className="flex items-center gap-1">
-                                 <span className="text-[#db202c] font-black text-2xl tracking-tighter">N</span>
-                                 <span className="text-gray-300 text-xs tracking-[0.2em] font-medium">SERIES</span>
+                      {/* Mobile Top Bar */}
+                      <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-20 md:hidden">
+                         <Logo className="w-10 h-10 rounded-lg" variant="icon" />
+                         <div className="flex gap-4 font-semibold text-white text-sm shadow-black drop-shadow-md">
+                            <span onClick={() => setCurrentView('shows')} className={currentView === 'shows' ? 'text-white' : 'text-gray-300'}>TV Shows</span>
+                            <span onClick={() => setCurrentView('movies')} className={currentView === 'movies' ? 'text-white' : 'text-gray-300'}>Movies</span>
+                            <span onClick={() => setCurrentView('mylist')} className={currentView === 'mylist' ? 'text-white' : 'text-gray-300'}>My List</span>
+                         </div>
+                      </div>
+
+                      <div className="absolute bottom-0 left-0 w-full flex flex-col items-center justify-end pb-10 md:items-start md:pl-12 md:pb-24">
+                          
+                          {/* Metadata - Genre row */}
+                          <div className="flex items-center gap-2 mb-4 text-sm font-medium text-white drop-shadow-md md:hidden">
+                                <span>{displayContent[0].genre}</span>
+                                <span className="text-gray-400">•</span>
+                                <span>Exciting</span>
+                                <span className="text-gray-400">•</span>
+                                <span>Drama</span>
+                          </div>
+
+                          {/* Desktop Title & Meta (Hidden on Mobile usually or simplified) */}
+                          <div className="hidden md:block mb-6">
+                              <h1 className="text-7xl font-black text-white mb-4 leading-[0.9] uppercase tracking-tighter drop-shadow-2xl">
+                                  {displayContent[0].title}
+                              </h1>
+                              <div className="flex items-center gap-4 text-white font-medium">
+                                  <span className="bg-yellow-500 text-black text-xs px-1 rounded font-bold">IMDb 8.8</span>
+                                  <span className="text-green-400 text-sm font-bold">98% Match</span>
                               </div>
                           </div>
 
-                          {/* Title */}
-                          <h1 className="text-5xl md:text-7xl font-black text-white mb-4 leading-[0.9] uppercase tracking-tighter drop-shadow-2xl animate-slide-up" style={{animationDelay: '0.2s'}}>
-                              {displayContent[0].title}
-                          </h1>
+                          {/* Action Buttons Row */}
+                          <div className="flex items-center gap-4 md:gap-4 w-full justify-center md:justify-start px-4">
+                             {/* My List Button (Mobile) */}
+                             <div className="flex flex-col items-center gap-1 cursor-pointer md:hidden" onClick={() => toggleMyList(displayContent[0])}>
+                                 {user.myList?.includes(displayContent[0].id) ? (
+                                    <svg className="w-6 h-6 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                                 ) : (
+                                    <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                                 )}
+                                 <span className="text-[10px] text-gray-300 font-medium">My List</span>
+                             </div>
 
-                          {/* Info Row */}
-                          <div className="flex items-center gap-4 text-white font-medium mb-6 animate-slide-up" style={{animationDelay: '0.3s'}}>
-                              <span className="bg-yellow-500 text-black text-xs px-1 rounded font-bold">IMDb 8.8/10</span>
-                              <span className="text-gray-300">2B+ Streams</span>
-                              <span className="border border-gray-500 px-1 text-xs rounded text-gray-300">4K</span>
-                              <span className="text-green-400 text-sm font-bold">98% Match</span>
-                          </div>
-
-                          {/* Buttons */}
-                          <div className="flex gap-4 animate-slide-up" style={{animationDelay: '0.4s'}}>
+                             {/* Play Button */}
                              <button 
                                onClick={() => handlePlay(displayContent[0])}
-                               className="bg-brand hover:bg-brand-dark text-white px-8 py-3 rounded text-lg font-bold flex items-center gap-2 transition-transform hover:scale-105 shadow-[0_0_20px_rgba(234,88,12,0.4)]"
+                               className="bg-white text-black px-6 py-2 rounded-md font-bold flex items-center gap-2 hover:bg-gray-200 transition min-w-[100px] justify-center md:px-8 md:py-3 md:text-lg"
                              >
-                                <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                <svg className="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                                 Play
                              </button>
+
+                             {/* Info Button */}
+                             <div className="flex flex-col items-center gap-1 cursor-pointer md:hidden" onClick={() => handleContentClick(displayContent[0])}>
+                                 <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                 <span className="text-[10px] text-gray-300 font-medium">Info</span>
+                             </div>
+
+                             {/* Desktop More Info Button */}
                              <button 
                                onClick={() => handleContentClick(displayContent[0])}
-                               className="bg-gray-500/40 hover:bg-gray-500/60 backdrop-blur-md text-white px-8 py-3 rounded text-lg font-bold flex items-center gap-2 transition-colors border border-white/10"
+                               className="hidden md:flex bg-gray-500/40 hover:bg-gray-500/60 backdrop-blur-md text-white px-8 py-3 rounded text-lg font-bold items-center gap-2 transition-colors border border-white/10"
                              >
                                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                 More Info
@@ -624,16 +753,16 @@ const HoyeehApp = () => {
                 )}
 
                 {/* Rows */}
-                <div className="relative z-10 -mt-32 pb-10 space-y-12 pl-4 md:pl-12">
+                <div className="relative z-10 -mt-8 md:-mt-32 pb-24 space-y-8 pl-4 md:pl-12">
                    {loadingContent ? (
-                        <div className="grid grid-cols-2 md:grid-cols-6 gap-4 pr-4">
+                        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 pr-4">
                             {[...Array(6)].map((_,i) => <Skeleton key={i} className="aspect-[2/3] rounded-md" />)}
                         </div>
                    ) : (
                         <>
                              {currentView === 'home' && (
                                  <Section 
-                                    title="New this week" 
+                                    title="New Releases" 
                                     content={displayContent.slice(0, 10)} 
                                     onClick={handleContentClick} 
                                     onToggleList={toggleMyList}
@@ -651,7 +780,7 @@ const HoyeehApp = () => {
 
                              {recMovies.length > 0 && (
                                 <Section 
-                                    title="Recommended Movies" 
+                                    title="Top Picks for You" 
                                     content={recMovies} 
                                     onClick={handleContentClick}
                                     onToggleList={toggleMyList}
@@ -665,13 +794,21 @@ const HoyeehApp = () => {
           )}
 
            {/* Mobile Bottom Nav */}
-          <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#121212] border-t border-gray-800 flex justify-around py-3 z-50 pb-safe">
+          <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#121212]/95 backdrop-blur-md border-t border-gray-800 flex justify-around py-3 z-50 pb-safe">
             <NavIcon icon="home" label="Home" active={currentView === 'home'} onClick={() => setCurrentView('home')} />
-            <NavIcon icon="movie" label="Movies" active={currentView === 'movies'} onClick={() => setCurrentView('movies')} />
-            <NavIcon icon="tv" label="Series" active={currentView === 'shows'} onClick={() => setCurrentView('shows')} />
-            <NavIcon icon="search" label="Search" active={currentView === 'search'} onClick={() => setCurrentView('search')} />
-            <NavIcon icon="download" label="My List" active={currentView === 'mylist'} onClick={() => setCurrentView('mylist')} />
+            <NavIcon icon="game" label="Games" active={false} onClick={() => {}} /> {/* Decorative for Netflix feel */}
+            <NavIcon icon="movie" label="New & Hot" active={currentView === 'movies'} onClick={() => setCurrentView('movies')} />
+            <NavIcon icon="download" label="Downloads" active={currentView === 'mylist'} onClick={() => setCurrentView('mylist')} />
           </div>
+
+          {/* General Feedback Floating Button */}
+          <button 
+             onClick={() => openFeedback()}
+             className="fixed bottom-20 md:bottom-10 right-4 md:right-10 z-[60] bg-gray-800 text-white p-3 rounded-full shadow-xl hover:bg-gray-700 transition-transform hover:scale-105 border border-gray-700"
+             aria-label="Send Feedback"
+          >
+             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" /></svg>
+          </button>
       </main>
     </div>
   );
@@ -682,13 +819,13 @@ const Section: React.FC<{ title: string; content: Content[]; onClick: any; onTog
   if (content.length === 0) return null;
   return (
     <div className="animate-fade-in">
-      <h3 className="text-xl md:text-2xl font-bold text-white mb-4 hover:text-brand cursor-pointer flex items-center gap-2 group">
+      <h3 className="text-lg md:text-2xl font-bold text-white mb-3 hover:text-brand cursor-pointer flex items-center gap-2 group pl-1">
         {title}
-        <span className="text-brand text-sm font-semibold opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0">Explore All &gt;</span>
+        <span className="text-brand text-sm font-semibold opacity-0 group-hover:opacity-100 transition-opacity -translate-x-2 group-hover:translate-x-0 hidden md:inline">Explore All &gt;</span>
       </h3>
-      <div className="flex gap-4 overflow-x-auto no-scrollbar pb-8 snap-x pr-8">
+      <div className="flex gap-3 overflow-x-auto no-scrollbar pb-8 snap-x pr-4">
         {content.map((item) => (
-          <div key={item.id} className="flex-none w-[160px] md:w-[220px] snap-center transition-transform hover:scale-105 duration-300 origin-center">
+          <div key={item.id} className="flex-none w-[110px] md:w-[220px] snap-center transition-transform hover:scale-105 duration-300 origin-center">
              <ContentCard 
                 item={item} 
                 onClick={onClick}
@@ -708,7 +845,8 @@ const NavIcon: React.FC<{ icon: string; label: string; active?: boolean; onClick
     search: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />,
     download: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />,
     movie: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />,
-    tv: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+    tv: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />,
+    game: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
   };
 
   return (
@@ -721,10 +859,12 @@ const NavIcon: React.FC<{ icon: string; label: string; active?: boolean; onClick
   );
 };
 
-const App = () => (
-  <DownloadProvider>
-    <HoyeehApp />
-  </DownloadProvider>
-);
+const App = () => {
+    return (
+        <DownloadProvider>
+            <HoyeehApp />
+        </DownloadProvider>
+    );
+};
 
 export default App;

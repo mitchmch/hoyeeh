@@ -2,19 +2,22 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { Content } from '../types';
 import { api } from '../services/api';
-import { offlineStorage } from '../services/offlineStorage';
+import { offlineStorage, DownloadState } from '../services/offlineStorage';
 
 export interface DownloadItem {
   content: Content;
   progress: number;
-  status: 'pending' | 'downloading' | 'completed' | 'error';
+  status: 'pending' | 'downloading' | 'paused' | 'completed' | 'error';
   error?: string;
   abortController?: AbortController;
+  total?: number;
 }
 
 interface DownloadContextType {
   activeDownloads: Record<string, DownloadItem>;
   startDownload: (content: Content) => Promise<void>;
+  pauseDownload: (contentId: string) => void;
+  resumeDownload: (contentId: string) => Promise<void>;
   cancelDownload: (contentId: string) => void;
   removeDownload: (contentId: string) => Promise<void>;
   isDownloading: (contentId: string) => boolean;
@@ -33,6 +36,28 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [activeDownloads, setActiveDownloads] = useState<Record<string, DownloadItem>>({});
   const processingRef = useRef(false);
 
+  // Load interrupted downloads on mount
+  useEffect(() => {
+    const loadInterrupted = async () => {
+        try {
+            const savedStates = await offlineStorage.getAllActiveDownloads();
+            const recovered: Record<string, DownloadItem> = {};
+            savedStates.forEach(state => {
+                recovered[state.id] = {
+                    content: state.content,
+                    progress: state.total > 0 ? Math.round((state.loaded / state.total) * 100) : 0,
+                    status: 'paused', // Initially paused on reload
+                    total: state.total
+                };
+            });
+            setActiveDownloads(prev => ({ ...prev, ...recovered }));
+        } catch (e) {
+            console.error("Failed to recover downloads", e);
+        }
+    };
+    loadInterrupted();
+  }, []);
+
   // Queue Processing Effect
   useEffect(() => {
     processQueue();
@@ -41,7 +66,6 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const processQueue = async () => {
     if (processingRef.current) return;
 
-    // Fix: Explicitly cast Object.values to DownloadItem[] to avoid "Property does not exist on type unknown" error
     const downloads = Object.values(activeDownloads) as DownloadItem[];
     const downloading = downloads.filter(d => d.status === 'downloading');
     const pending = downloads.filter(d => d.status === 'pending');
@@ -56,7 +80,14 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const startDownload = useCallback(async (content: Content) => {
-    if (activeDownloads[content.id]) return; // Already in list
+    if (activeDownloads[content.id]) {
+        // If it exists but is paused/error, resume it
+        const item = activeDownloads[content.id];
+        if (item.status === 'paused' || item.status === 'error') {
+            await resumeDownload(content.id);
+        }
+        return; 
+    }
 
     setActiveDownloads(prev => ({
       ...prev,
@@ -67,6 +98,30 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     }));
   }, [activeDownloads]);
+
+  const resumeDownload = useCallback(async (contentId: string) => {
+     setActiveDownloads(prev => {
+         const item = prev[contentId];
+         if (!item) return prev;
+         return {
+             ...prev,
+             [contentId]: { ...item, status: 'pending', error: undefined }
+         };
+     });
+  }, []);
+
+  const pauseDownload = useCallback((contentId: string) => {
+    setActiveDownloads(prev => {
+      const item = prev[contentId];
+      if (item && item.abortController) {
+        item.abortController.abort(); // This triggers the AbortError in executeDownload
+      }
+      return {
+          ...prev,
+          [contentId]: { ...item, status: 'paused', abortController: undefined }
+      };
+    });
+  }, []);
 
   const executeDownload = async (content: Content) => {
     const abortController = new AbortController();
@@ -81,46 +136,98 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }));
 
     try {
-      // 1. Get Signed URL specifically for download (prefers MP4)
+      // 1. Check for existing partial state
+      const savedState = await offlineStorage.getDownloadState(content.id);
+      let loaded = 0;
+      let total = 0;
+      let chunks: Blob[] = [];
+
+      if (savedState) {
+          loaded = savedState.loaded;
+          total = savedState.total;
+          chunks = savedState.chunks;
+      }
+
+      // 2. Get Signed URL
       const { url } = await api.content.getSignedUrl(content.id, 'download');
 
-      // 2. Fetch with Progress
-      const response = await fetch(url, { signal: abortController.signal });
+      // 3. Fetch with Range if resuming
+      const headers: HeadersInit = {};
+      if (loaded > 0) {
+          headers['Range'] = `bytes=${loaded}-`;
+      }
+
+      const response = await fetch(url, { 
+          signal: abortController.signal,
+          headers
+      });
+
       if (!response.body) throw new Error('ReadableStream not supported');
+      if (!response.ok && response.status !== 206) {
+           throw new Error(`Download failed: ${response.statusText}`);
+      }
 
-      const contentLength = response.headers.get('Content-Length');
-      // If Content-Length is missing, we can't calculate progress accurately, 
-      // but we still download.
-      const total = contentLength ? parseInt(contentLength, 10) : 0;
-      let loaded = 0;
-      
+      // If new download, get total length
+      if (loaded === 0) {
+          const contentLength = response.headers.get('Content-Length');
+          total = contentLength ? parseInt(contentLength, 10) : 0;
+      } else {
+          // If resuming, Content-Length is remaining bytes
+          // We rely on saved 'total' if available, or try to parse Content-Range
+          // Content-Range: bytes 100-200/200
+          if (!total) {
+               const cr = response.headers.get('Content-Range');
+               if (cr) {
+                   const parts = cr.split('/');
+                   if (parts[1]) total = parseInt(parts[1], 10);
+               }
+          }
+      }
+
       const reader = response.body.getReader();
-      const chunks = [];
-
+      let lastSaveTime = Date.now();
+      
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        chunks.push(value);
+        chunks.push(new Blob([value]));
         loaded += value.byteLength;
         
         const progress = total > 0 ? Math.round((loaded / total) * 100) : 0;
         
+        // Update UI State
         setActiveDownloads(prev => {
             if (!prev[content.id]) return prev; 
             return {
                 ...prev,
-                [content.id]: { ...prev[content.id], progress }
+                [content.id]: { ...prev[content.id], progress, total }
             };
         });
+
+        // Periodic Save to IDB (every 2 seconds)
+        if (Date.now() - lastSaveTime > 2000) {
+            await offlineStorage.saveDownloadState({
+                id: content.id,
+                content,
+                chunks, // Note: Storing array of blobs in IDB
+                loaded,
+                total,
+                status: 'downloading',
+                timestamp: Date.now()
+            });
+            lastSaveTime = Date.now();
+        }
       }
 
-      const blob = new Blob(chunks, { type: 'video/mp4' });
+      // Final Blob Assembly
+      const finalBlob = new Blob(chunks, { type: 'video/mp4' });
 
-      // 3. Save to Storage
-      await offlineStorage.saveVideo(content, blob);
+      // 4. Save Completed Video
+      await offlineStorage.saveVideo(content, finalBlob);
 
-      // 4. Update Status (Remove from active list upon completion to clean up UI)
+      // 5. Cleanup Active State
+      await offlineStorage.deleteDownloadState(content.id);
       setActiveDownloads(prev => {
           const newState = { ...prev };
           delete newState[content.id]; 
@@ -129,37 +236,47 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        console.log('Download cancelled');
+        console.log('Download paused/aborted');
+        // Save state one last time on pause
+        // Note: We can't access local variables easily here if we don't track them in a ref or similar,
+        // but the periodic save catches most.
+        setActiveDownloads(prev => ({
+            ...prev,
+            [content.id]: { ...prev[content.id], status: 'paused', abortController: undefined }
+        }));
       } else {
         console.error('Download failed', error);
         setActiveDownloads(prev => ({
             ...prev,
-            [content.id]: { ...prev[content.id], status: 'error', error: error.message }
+            [content.id]: { ...prev[content.id], status: 'error', error: error.message, abortController: undefined }
         }));
       }
     }
   };
 
-  const cancelDownload = useCallback((contentId: string) => {
+  const cancelDownload = useCallback(async (contentId: string) => {
+    // Abort if running
+    if (activeDownloads[contentId]?.abortController) {
+        activeDownloads[contentId].abortController?.abort();
+    }
+    
+    // Remove from IDB active state
+    await offlineStorage.deleteDownloadState(contentId);
+
+    // Remove from UI
     setActiveDownloads(prev => {
-      const item = prev[contentId];
-      if (item && item.abortController) {
-        item.abortController.abort();
-      }
       const newState = { ...prev };
       delete newState[contentId];
       return newState;
     });
-  }, []);
+  }, [activeDownloads]);
 
   const removeDownload = useCallback(async (contentId: string) => {
-    // Check if active
-    if (activeDownloads[contentId]) {
-        cancelDownload(contentId);
-    }
-    // Delete from storage
+    // Remove complete download
     await offlineStorage.deleteVideo(contentId);
-  }, [activeDownloads, cancelDownload]);
+    // Also check active/paused downloads
+    await cancelDownload(contentId);
+  }, [cancelDownload]);
 
   const isDownloading = useCallback((contentId: string) => {
     return !!activeDownloads[contentId];
@@ -173,6 +290,8 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     <DownloadContext.Provider value={{
       activeDownloads,
       startDownload,
+      pauseDownload,
+      resumeDownload,
       cancelDownload,
       removeDownload,
       isDownloading,
