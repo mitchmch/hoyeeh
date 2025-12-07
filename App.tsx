@@ -18,12 +18,14 @@ import { AFRICAN_COUNTRIES } from './constants';
 import { DownloadProvider } from './contexts/DownloadContext';
 import { FeedbackModal } from './components/FeedbackModal';
 import { Logo } from './components/Logo';
+import { LandingPage } from './components/LandingPage';
 
 type ViewState = 'home' | 'movies' | 'shows' | 'player' | 'admin' | 'mylist' | 'profile' | 'search';
 type ToastState = { message: string, type: 'success' | 'error' | 'info' } | null;
 
 const HoyeehApp = () => {
   const [user, setUser] = useState<User | null>(null);
+  const [showAuth, setShowAuth] = useState(false);
   const [isProfileSelected, setIsProfileSelected] = useState(false);
   const [editMode, setEditMode] = useState(false); // Added missing state
   
@@ -288,6 +290,7 @@ const HoyeehApp = () => {
 
   const handleLogout = () => {
     setUser(null);
+    setShowAuth(false);
     localStorage.removeItem('hoyeeh_token');
     localStorage.removeItem('hoyeeh_user');
     setCurrentView('home');
@@ -384,20 +387,39 @@ const HoyeehApp = () => {
     />;
   }
 
-  // 1. LOGIN SCREEN
+  // 1. LANDING & LOGIN SCREEN
   if (!user) {
+    if (!showAuth) {
+        return (
+            <LandingPage 
+                onSignIn={() => {
+                    setIsRegistering(false);
+                    setShowAuth(true);
+                }}
+                onGetStarted={(email) => {
+                    if (email) setMobileNumber(email); // Pre-fill email/phone if provided
+                    setIsRegistering(true);
+                    setShowAuth(true);
+                }}
+            />
+        );
+    }
+
     return (
       <div className="min-h-screen bg-black flex flex-col p-6 relative overflow-hidden">
         {/* Background Image with Overlay */}
         <div className="absolute inset-0 z-0">
-             <img src="https://assets.nflxext.com/ffe/siteui/vlv3/9d3533b2-0e2b-40b2-95e0-ecd7979cc93b/d3a7396f-6d74-47b2-15b7-b77525be4301/IN-en-20240311-popsignuptwoweeks-perspective_alpha_website_small.jpg" 
-                  className="w-full h-full object-cover opacity-50" />
+             <img src="/hero.png" 
+                  className="w-full h-full object-cover opacity-60" 
+                  alt="Background" />
              <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-black/40 to-black"></div>
         </div>
 
         {/* Top Bar */}
         <div className="relative z-10 flex justify-between items-center mb-12 pt-4">
-             <Logo className="w-24 h-12" />
+             <div onClick={() => setShowAuth(false)} className="cursor-pointer">
+                <Logo className="w-24 h-12" />
+             </div>
              <button className="text-white text-sm font-medium" onClick={() => { setIsRegistering(!isRegistering); setIsResetting(false); }}>
                  {isRegistering ? 'Sign In' : 'Help'}
              </button>
