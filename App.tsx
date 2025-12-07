@@ -131,11 +131,19 @@ const HoyeehApp = () => {
     const promises = items.map(async (item) => {
         if (!item.thumbnailUrl || item.thumbnailUrl === '' || item.thumbnailUrl.includes('No+Cover') || item.thumbnailUrl.includes('via.placeholder')) {
             try {
-                const movieData = await tmdb.searchMovie(item.title);
-                if (movieData?.thumbnailUrl) {
-                    return { ...item, thumbnailUrl: movieData.thumbnailUrl };
+                let result;
+                if (item.contentType === 'series') {
+                    result = await tmdb.searchTv(item.title);
+                } else {
+                    result = await tmdb.searchMovie(item.title);
                 }
-            } catch (e) { }
+                
+                if (result?.thumbnailUrl) {
+                    return { ...item, thumbnailUrl: result.thumbnailUrl };
+                }
+            } catch (e) { 
+                console.error(`Failed to enrich ${item.title}`, e);
+            }
         }
         return item;
     });
